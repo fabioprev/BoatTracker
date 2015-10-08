@@ -551,7 +551,7 @@ int main( int argc, char** argv )
 					observation.observation.x = centerX;
 					observation.observation.y = centerY;
 					observation.model.barycenter = centerX;
-					observation.model.boundingBox = make_pair(PTracking::Point2f(it->x - centerX,-it->height),PTracking::Point2f(it->height + it->x - centerX,0));
+					observation.model.boundingBox = make_pair(PTracking::Point2f(-it->width / 2,-it->height),PTracking::Point2f(it->width / 2,0));
 					observation.model.height = it->height;
 					observation.model.width = it->width;
 					
@@ -568,7 +568,7 @@ int main( int argc, char** argv )
 				visualReading.setObservations(obs);
 				visualReading.setObservationsAgentPose(Point2of(0.0,0.0,0.0));
 				
-				pTracker->exec(visualReading);
+				if (resultsIteration > 400) pTracker->exec(visualReading);
 				
 				estimatedTargetModelsWithIdentity = pTracker->getAgentEstimations();
 				//groupEstimatedTargetModelsWithIdentity = pTracker->getAgentGroupEstimations();
