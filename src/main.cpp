@@ -32,7 +32,20 @@
 // Uncomment if you want to write the results in a xml file.
 #define RESULTS_ENABLED
 
-#define EBUSY 16	
+#define EBUSY 16
+
+PTracker* pTracker2;
+
+static void* pTracker2Thread()
+{
+	pTracker2 = new PTracker(2,"","",8);
+	
+	pTracker2->exec("/home/tracker-1/Desktop/input.xml");
+	
+	usleep(1000 * 1000 / 8);
+	
+	return 0;
+}
 
 using namespace std;
 using namespace cv;
@@ -199,6 +212,7 @@ int main( int argc, char** argv )
 	IplImage *trackingImage = 0;
 	IplImage *sealineImage = 0;
 	IplImage *seaEdgeImage = 0;
+	IplImage* mapImage = 0;
 
 	//time
 	long detector_time = 0;
@@ -303,7 +317,11 @@ int main( int argc, char** argv )
 	//		new Tracker(associateThreshold, missThreshold, validThreshold);
 	
 	// PTracker
-	PTracker* pTracker = new PTracker(1);
+	PTracker* pTracker = new PTracker(1,"","",8);
+	
+	pthread_t pTracker2Id;
+	
+	pthread_create(&pTracker2Id,0,(void*(*)(void*)) pTracker2Thread,0);
 
 	//VALIDATION
 	Validation* validation = new Validation();
@@ -403,7 +421,7 @@ int main( int argc, char** argv )
 	
 	resultsIteration = 0;
 #endif
-
+	
     while(run) {
 
         detector_hours = detector_time /3600000;
@@ -430,10 +448,12 @@ int main( int argc, char** argv )
 
             if( !frame_copy ) {
 
-                frame_copy = cvCreateImage( cvSize(frame->width, frame->height), frame->depth, frame->nChannels );
+				frame_copy = cvCreateImage( cvSize(frame->width, frame->height), frame->depth, frame->nChannels );
                 rawImage = cvCreateImage( cvSize((int)(frame->width/arg->scale), (int)(frame->height/arg->scale)),
                                     frame->depth, frame->nChannels );
                 detectionImage = cvCreateImage( cvSize(rawImage->width, rawImage->height),
+                        rawImage->depth, rawImage->nChannels );
+				validationImage = cvCreateImage( cvSize(rawImage->width, rawImage->height),
                         rawImage->depth, rawImage->nChannels );
 
                 images[0] = detectionImage;
@@ -447,12 +467,17 @@ int main( int argc, char** argv )
                 edgeImage = cvCreateImage( cvSize(rawImage->width, rawImage->height), rawImage->depth, 1 );
 
                 sealineImage = cvCreateImage( cvSize(rawImage->width, rawImage->height), rawImage->depth, 1 );
-
-                images[2] = sealineImage;
+				
+				mapImage = cvLoadImage("/home/tracker-1/Fabio/Datasets/Boat/Map.jpg",1);
+				
+				images[2] = mapImage;
+				//images[2] = sealineImage;
 
                 seaEdgeImage = cvCreateImage( cvSize(rawImage->width, rawImage->height), rawImage->depth, 1 );
 
                 images[3] = validationImage;
+				
+				cerr << "Width: " << validationImage->width << ", Height: " << validationImage->height << endl;
 
                 if(arg->saveVideo) {
                     writer = cvCreateVideoWriter(arg->outVideoName, CV_FOURCC('D', 'I', 'V', 'X'), out_fps,
@@ -487,10 +512,12 @@ int main( int argc, char** argv )
             cvCopy(rawImage, detectionImage);
             
             pair<map<int,pair<pair<ObjectSensorReading::Observation,PTracking::Point2f>,pair<string,int> > >,map<int,pair<ObjectSensorReading::Observation,PTracking::Point2f> > > estimatedTargetModelsWithIdentity;
+			pair<map<int,pair<pair<ObjectSensorReading::Observation,PTracking::Point2f>,pair<string,int> > >,map<int,pair<ObjectSensorReading::Observation,PTracking::Point2f> > > estimatedTargetModelsWithIdentityPTracker2;
 
             if(!fastForward) {
 
                 cvCopy(rawImage, trackingImage);
+				cvCopy(rawImage, validationImage);
 
                 //gray_image
                 cvCvtColor( rawImage, grayImage, CV_BGR2GRAY );
@@ -568,12 +595,19 @@ int main( int argc, char** argv )
 				visualReading.setObservations(obs);
 				visualReading.setObservationsAgentPose(Point2of(0.0,0.0,0.0));
 				
-				if (resultsIteration > 400) pTracker->exec(visualReading);
+				if (resultsIteration > 50) pTracker->exec(visualReading);
 				
 				estimatedTargetModelsWithIdentity = pTracker->getAgentEstimations();
 				//groupEstimatedTargetModelsWithIdentity = pTracker->getAgentGroupEstimations();
 				
 				Mat matTrackingImage(trackingImage);
+				Mat matValidationImage(validationImage);
+				
+				mapImage = cvLoadImage("/home/tracker-1/Fabio/Datasets/Boat/Map.jpg",1);
+				
+				images[2] = mapImage;
+				
+				Mat matMapImage(mapImage);
 				
 #ifdef RESULTS_ENABLED
 				//if (estimatedTargetModelsWithIdentity.first.size() > 0)
@@ -582,18 +616,57 @@ int main( int argc, char** argv )
 					results << "      <objectlist>" << endl;
 				}
 #endif
-
+				
+				/// Local estimations.
+				for (SingleAgentEstimations::const_iterator it = estimatedTargetModelsWithIdentity.second.begin(); it != estimatedTargetModelsWithIdentity.second.end(); ++it)
+				{
+					cv::Point2f p;
+					
+					p.x = it->second.first.observation.x;
+					p.y = it->second.first.observation.y;
+					
+					map<int,pair<int,pair<int,int> > >::iterator colorTrack = colorMap.find(it->first);
+					
+					rectangle(matTrackingImage,cvPoint(p.x - (it->second.first.model.width / 2), p.y - it->second.first.model.height),
+							  cvPoint(p.x + (it->second.first.model.width / 2), p.y),
+							  cvScalar(colorTrack->second.first,colorTrack->second.second.first,colorTrack->second.second.second), 3);
+					
+					stringstream text;
+					
+					text << it->first;
+					
+					int fontFace = FONT_HERSHEY_SIMPLEX;
+					double fontScale = 1;
+					int thickness = 3;
+					Point textOrg(p.x - (it->second.first.model.width / 2), p.y - it->second.first.model.height - 7);
+					
+					putText(matTrackingImage,text.str(),textOrg,fontFace,fontScale,Scalar::all(0),thickness,8);
+					
+					fontScale = 1;
+					thickness = 2;
+					Point textOrg2(p.x - (it->second.first.model.width / 2) + 2, p.y - it->second.first.model.height - 9);
+					
+					putText(matTrackingImage,text.str(),textOrg2,fontFace,fontScale,Scalar::all(255),thickness,8);
+					
+#ifdef RESULTS_ENABLED
+						results << "         <object id=\"" << it->first << "\">" << endl;
+						results << "            <box h=\"" << (it->second.first.model.height * arg->scale) << "\" w=\"" << (it->second.first.model.width * arg->scale) << "\" xc=\"" << (p.x * arg->scale)
+								<< "\" yc=\"" << ((p.y * arg->scale) - ((it->second.first.model.height * arg->scale) / 2)) << "\"/>" << endl;
+						results << "         </object>" << endl;
+#endif
+				}
+				
 				/// Global estimations.
-				for (map<int,pair<pair<ObjectSensorReading::Observation,PTracking::Point2f>,pair<string,int> > >::const_iterator it = estimatedTargetModelsWithIdentity.first.begin(); it != estimatedTargetModelsWithIdentity.first.end(); ++it)
+				for (MultiAgentEstimations::const_iterator it = estimatedTargetModelsWithIdentity.first.begin(); it != estimatedTargetModelsWithIdentity.first.end(); ++it)
 				{
 					cv::Point2f p;
 					
 					p.x = it->second.first.first.observation.x;
 					p.y = it->second.first.first.observation.y;
 					
-					map<int,pair<int,pair<int,int> > >::iterator colorTrack = colorMap.find(it->first);
+					map<int,pair<int,pair<int,int> > >::iterator colorTrack = colorMap.find((it == estimatedTargetModelsWithIdentity.first.begin()) ? 1 : 2);
 					
-					rectangle(matTrackingImage,cvPoint(p.x - (it->second.first.first.model.width / 2), p.y - it->second.first.first.model.height),
+					rectangle(matValidationImage,cvPoint(p.x - (it->second.first.first.model.width / 2), p.y - it->second.first.first.model.height),
 							  cvPoint(p.x + (it->second.first.first.model.width / 2), p.y),
 							  cvScalar(colorTrack->second.first,colorTrack->second.second.first,colorTrack->second.second.second), 3);
 					
@@ -605,21 +678,71 @@ int main( int argc, char** argv )
 					double fontScale = 1;
 					int thickness = 3;
 					Point textOrg(p.x - (it->second.first.first.model.width / 2), p.y - it->second.first.first.model.height - 7);
-					putText(matTrackingImage,text.str(),textOrg,fontFace,fontScale,Scalar::all(0),thickness,8);
+					
+					putText(matValidationImage,text.str(),textOrg,fontFace,fontScale,Scalar::all(0),thickness,8);
 					
 					fontScale = 1;
 					thickness = 2;
 					Point textOrg2(p.x - (it->second.first.first.model.width / 2) + 2, p.y - it->second.first.first.model.height - 9);
-					putText(matTrackingImage,text.str(),textOrg2,fontFace,fontScale,Scalar::all(255),thickness,8);
 					
-	#ifdef RESULTS_ENABLED
-						results << "         <object id=\"" << it->first << "\">" << endl;
-						results << "            <box h=\"" << (it->second.first.first.model.height * arg->scale) << "\" w=\"" << (it->second.first.first.model.width * arg->scale) << "\" xc=\"" << (p.x * arg->scale)
-								<< "\" yc=\"" << ((p.y * arg->scale) - ((it->second.first.first.model.height * arg->scale) / 2)) << "\"/>" << endl;
-						results << "         </object>" << endl;
-#endif
+					putText(matValidationImage,text.str(),textOrg2,fontFace,fontScale,Scalar::all(255),thickness,8);
 				}
-			
+				
+				estimatedTargetModelsWithIdentityPTracker2 = pTracker2->getAgentEstimations();
+				
+				/// Global estimations.
+				for (SingleAgentEstimations::const_iterator it = estimatedTargetModelsWithIdentityPTracker2.second.begin(); it != estimatedTargetModelsWithIdentityPTracker2.second.end(); ++it)
+				{
+					cv::Point2f p;
+					stringstream text;
+					cv::Point textOrigin;
+					
+					int font = FONT_HERSHEY_SIMPLEX;
+					
+					p.x = it->second.first.observation.x;
+					p.y = it->second.first.observation.y;
+					
+					const map<int,pair<int,pair<int,int> > >::iterator& colorTrack = colorMap.find((it == estimatedTargetModelsWithIdentityPTracker2.second.begin()) ? 1 : 2);
+					
+					double fontScale = 0.5;
+					int thickness = 3;
+					
+					if (it->first < 9)
+					{
+						textOrigin.x = p.x - 6;
+						textOrigin.y = p.y  - 11;
+					}
+					else
+					{
+						textOrigin.x = p.x - 11;
+						textOrigin.y = p.y  - 11;
+					}
+					
+					text.str("");
+					text.clear();
+					
+					text << it->first;
+					
+					putText(matMapImage,text.str(),textOrigin,font,fontScale,Scalar::all(0),thickness,8);
+					
+					fontScale = 0.5;
+					thickness = 2;
+					
+					if (it->first < 9)
+					{
+						textOrigin.x = p.x - 4;
+						textOrigin.y = p.y  - 12;
+					}
+					else
+					{
+						textOrigin.x = p.x - 9;
+						textOrigin.y = p.y  - 12;
+					}
+					
+					putText(matMapImage,text.str(),textOrigin,font,fontScale,Scalar::all(255),thickness,8);
+					circle(matMapImage,cv::Point(p.x,p.y),6,cvScalar(colorTrack->second.first,colorTrack->second.second.first,colorTrack->second.second.second),2);
+				}
+				
 #ifdef RESULTS_ENABLED
 				//if (estimatedTargetModelsWithIdentity.first.size() > 0)
 				{
