@@ -321,7 +321,7 @@ int main( int argc, char** argv )
 	
 	pthread_t pTracker2Id;
 	
-	pthread_create(&pTracker2Id,0,(void*(*)(void*)) pTracker2Thread,0);
+	//pthread_create(&pTracker2Id,0,(void*(*)(void*)) pTracker2Thread,0);
 
 	//VALIDATION
 	Validation* validation = new Validation();
@@ -510,7 +510,7 @@ int main( int argc, char** argv )
             cvResize( frame_copy, rawImage, CV_INTER_CUBIC );
 
             cvCopy(rawImage, detectionImage);
-            
+			
             pair<map<int,pair<pair<ObjectSensorReading::Observation,PTracking::Point2f>,pair<string,int> > >,map<int,pair<ObjectSensorReading::Observation,PTracking::Point2f> > > estimatedTargetModelsWithIdentity;
 			pair<map<int,pair<pair<ObjectSensorReading::Observation,PTracking::Point2f>,pair<string,int> > >,map<int,pair<ObjectSensorReading::Observation,PTracking::Point2f> > > estimatedTargetModelsWithIdentityPTracker2;
 
@@ -557,7 +557,7 @@ int main( int argc, char** argv )
                 //}
                 
                 /// The coast line has not been computed yet.
-                if (detector->getSeaLimit() == 0) continue;
+                //if (detector->getSeaLimit() == 0) continue;
                 
                 vector<CvRect>* boats = detector->getBoats();
 				
@@ -566,7 +566,7 @@ int main( int argc, char** argv )
 				
 				for(vector<CvRect>::iterator it = boats->begin(); it != boats->end(); ++it)
 				{
-					//if (it->y < detector->getSeaLimit()) continue;
+					if (it->y < 100) continue;
 					
 					centerX = it->x + (it->width / 2);
 					centerY = it->y + it->height;
@@ -595,7 +595,7 @@ int main( int argc, char** argv )
 				visualReading.setObservations(obs);
 				visualReading.setObservationsAgentPose(Point2of(0.0,0.0,0.0));
 				
-				if (resultsIteration > 50) pTracker->exec(visualReading);
+				/*if (resultsIteration > 50)*/ pTracker->exec(visualReading);
 				
 				estimatedTargetModelsWithIdentity = pTracker->getAgentEstimations();
 				//groupEstimatedTargetModelsWithIdentity = pTracker->getAgentGroupEstimations();
@@ -688,7 +688,7 @@ int main( int argc, char** argv )
 					putText(matValidationImage,text.str(),textOrg2,fontFace,fontScale,Scalar::all(255),thickness,8);
 				}
 				
-				estimatedTargetModelsWithIdentityPTracker2 = pTracker2->getAgentEstimations();
+				/*estimatedTargetModelsWithIdentityPTracker2 = pTracker2->getAgentEstimations();
 				
 				/// Global estimations.
 				for (SingleAgentEstimations::const_iterator it = estimatedTargetModelsWithIdentityPTracker2.second.begin(); it != estimatedTargetModelsWithIdentityPTracker2.second.end(); ++it)
@@ -741,7 +741,7 @@ int main( int argc, char** argv )
 					
 					putText(matMapImage,text.str(),textOrigin,font,fontScale,Scalar::all(255),thickness,8);
 					circle(matMapImage,cv::Point(p.x,p.y),6,cvScalar(colorTrack->second.first,colorTrack->second.second.first,colorTrack->second.second.second),2);
-				}
+				}*/
 				
 #ifdef RESULTS_ENABLED
 				//if (estimatedTargetModelsWithIdentity.first.size() > 0)
@@ -783,8 +783,6 @@ int main( int argc, char** argv )
                 cvPutText(trackingImage, oss.str().c_str(), cvPoint(10, 20), &font, CV_RGB(0,0,0));
 
             } //if ! FAST FORWARD
-
-
 
             if(arg->datacollection) {
                 cvWriteFrame(dc_writer, rawImage);
@@ -862,7 +860,7 @@ int main( int argc, char** argv )
             }
             mosaic = imageMosaic(2, 2, mosaic_width, mosaic_height, images);
             cvShowImage("Boat Detector - Keys: <p> Play  <s> Stop  <f> Fast  <ESC> Quit", mosaic);
-
+			
             if(arg->saveVideo) {
                 cvWriteFrame(writer, mosaic);
             }
